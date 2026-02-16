@@ -344,7 +344,7 @@ def run_search(base_field,key_pos,nexts,paint_color,paint_count):
             total_patterns+=comb(len(cands),k)
 
     done=0
-    last_pct=0
+    last_pct=-1   # ←ここ重要
 
     for k in range(paint_count+1):
         for combi in combinations(cands,k):
@@ -355,13 +355,6 @@ def run_search(base_field,key_pos,nexts,paint_color,paint_count):
                 field[r][c]=paint_color
 
             chains,total,maxsim,key_alive,final=simulate(field,key_pos,nexts)
-
-            if key_pos and key_alive:
-                pass
-            elif key_pos and not key_alive:
-                pass
-            else:
-                pass
 
             ok=False
             if not key_alive:
@@ -378,12 +371,26 @@ def run_search(base_field,key_pos,nexts,paint_color,paint_count):
 
                 best=sorted(best,key=lambda x:(x["total"],x["chains"],x["maxsim"]),reverse=True)[:3]
 
+            # =========================
+            # 進捗更新（ここが新）
+            # =========================
             done+=1
             pct=int(done/total_patterns*100)
 
-            if pct//10>last_pct//10:
+            if pct!=last_pct:
                 progress_bar.progress(pct)
-                status_text.write(f"{pct}%")
+
+                bar = "█"*(pct//5) + "░"*(20-pct//5)
+
+                status_text.markdown(
+                    f"""
+**進捗:** {pct}%  
+**試行中:** {done:,} / {total_patterns:,}
+
+{bar}
+"""
+                )
+
                 last_pct=pct
 
     return best
