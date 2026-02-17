@@ -739,7 +739,7 @@ def run_search(base_field, nexts, paint_color, paint_count, min_k):
                 # “得点が出たか/連鎖したか”を条件にする方が自然なので、ここはUI化しやすい形にしてある。
                 #
                 # 今回は「連鎖が1以上」なら候補として残す（あとで好きに条件を変えられる）
-                if chains >= 1 and score >= 1:
+                if chains >= 1 :
                     any_ok = True
                     cand = {
                         "chains": chains,
