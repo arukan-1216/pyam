@@ -23,7 +23,6 @@ NEXT_COLORS = ["赤","青","緑","黄","紫"]
 # 連結数（局所判定用）
 # =========================
 def count_connected(field, sr, sc):
-    """(sr,sc) と同色の連結数を数える（空は0）"""
     color = field[sr][sc]
     if color == "空":
         return 0
@@ -45,23 +44,18 @@ def count_connected(field, sr, sc):
 
 def will_erase_if_painted(field, r, c, paint_color):
     """
-    (r,c) を paint_color に塗った瞬間に
-    4つ以上が成立するなら True
-    ※盤面全体は見ない。局所だけ。
+    (r,c) を paint_color に塗った瞬間に4つ以上が成立するなら True
     """
     if field[r][c] == "空":
         return False
     if field[r][c] == paint_color:
         return False
 
-    # 一時的に塗る
     original = field[r][c]
     field[r][c] = paint_color
 
-    # そのマスの連結だけ見れば十分
     cnt = count_connected(field, r, c)
 
-    # 戻す
     field[r][c] = original
 
     return cnt >= 4
@@ -116,8 +110,7 @@ def erase_step(field):
             if len(cells) >= 4:
                 erase |= set(cells)
 
-    # ハートは「4つで消えない」
-    # ただし消えるぷよに隣接していたら巻き込まれて消える
+    # ハート巻き込み
     heart = set()
     for r in range(ROWS):
         for c in range(COLS):
@@ -210,7 +203,7 @@ def remove_start_cell(field, start_pos):
 # Streamlit UI
 # =========================
 st.set_page_config(layout="wide")
-st.title("ぷよクエ ぷよ使い大会：盤面エディタ＆塗り替え探索（起点1マス固定）")
+st.title("ぷよクエ ぷよ使い大会：盤面エディタ＆塗り替え探索（起点1マス固定・進捗復活版）")
 
 # -------------------------
 # 状態
@@ -402,7 +395,6 @@ st.header("🔍 解析（塗り替え全探索）")
 paint_color = st.selectbox("塗り替え色", ["赤","青","緑","黄","紫","ハート"])
 paint_count = st.number_input("塗り替え数（最大12）", 0, 12, 0)
 
-# 進捗表示
 progress_bar = st.progress(0)
 status_text = st.empty()
 
@@ -422,7 +414,6 @@ def get_paint_candidates(base_field, paint_color):
             if v == paint_color:
                 continue
 
-            # 1マスだけ塗って即消えるなら候補から除外
             if will_erase_if_painted(tmp, r, c, paint_color):
                 continue
 
@@ -432,24 +423,16 @@ def get_paint_candidates(base_field, paint_color):
 
 def run_search(base_field, start_pos, nexts, paint_color, paint_count):
 
-    # --------------------------
-    # 塗り替え候補（枝切り）
-    # --------------------------
     cands = get_paint_candidates(base_field, paint_color)
 
     st.markdown(f"### ✅ 塗り替え候補マス数： **{len(cands)} / 48**")
 
-    # min_k（探索削減）
     min_k = max(0, paint_count - 4)
 
-    # 候補が少なすぎる場合
     if len(cands) < min_k:
         st.error(f"候補が少なすぎます（候補={len(cands)} / min_k={min_k}）")
         return []
 
-    # --------------------------
-    # 総パターン数計算
-    # --------------------------
     total_patterns = 0
     for k in range(min_k, paint_count + 1):
         if k <= len(cands):
@@ -464,64 +447,76 @@ def run_search(base_field, start_pos, nexts, paint_color, paint_count):
     done = 0
     last_pct = -1
 
+    def update_progress(done):
+        nonlocal last_pct
+        pct = int(done / total_patterns * 100)
+
+        if pct != last_pct:
+            progress_bar.progress(pct)
+
+            bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+
+            status_text.markdown(f"""
+**進捗:** {pct}%  
+**試行中:** {done:,} / {total_patterns:,}
+
+{bar}
+""")
+            last_pct = pct
+
     for k in range(min_k, paint_count + 1):
         for combi in combinations(cands, k):
 
-            # 盤面コピー known
             field = [row[:] for row in base_field]
 
-            # --------------------------
-            # 塗り替え適用
-            # --------------------------
+            # 塗り替え
             for r, c in combi:
                 field[r][c] = paint_color
 
             # --------------------------
-            # ルール：塗り替え直後に消えたら廃案
-            # → simulate_chainで消えるか確認
+            # 塗り替え直後に消えたら廃案
             # --------------------------
             chains0, _, _, after0 = simulate_chain(field)
             if chains0 > 0:
                 done += 1
+                update_progress(done)
                 continue
 
-            # --------------------------
             # ネクスト落下
-            # --------------------------
             field2 = drop_nexts(after0, nexts)
 
             # ネクスト落下で消えたら廃案
             chains1, _, _, after1 = simulate_chain(field2)
             if chains1 > 0:
                 done += 1
+                update_progress(done)
                 continue
 
-            # --------------------------
-            # 起点ぷよ（1個だけ手で消す）
-            # --------------------------
+            # 起点がないなら廃案
             if start_pos is None:
                 done += 1
+                update_progress(done)
                 continue
 
-            # 起点が空なら無理
             sr, sc = start_pos
             if after1[sr][sc] == "空":
                 done += 1
+                update_progress(done)
                 continue
 
-            # 起点を消してから連鎖
+            # 起点を消す（得点0）
             after_start = remove_start_cell(after1, start_pos)
 
+            # 起点後の連鎖
             chains, total, maxsim, final = simulate_chain(after_start)
 
             # 条件：6連鎖 or 最大同時消し16
             if not (chains >= 6 or maxsim >= 16):
                 done += 1
+                update_progress(done)
                 continue
 
-            # --------------------------
-            # 採用（上位3件）
-            # --------------------------
+            # 採用
             best.append({
                 "chains": chains,
                 "total": total,
@@ -536,25 +531,9 @@ def run_search(base_field, start_pos, nexts, paint_color, paint_count):
                 reverse=True
             )[:3]
 
-            # --------------------------
-            # 進捗更新
-            # --------------------------
             done += 1
-            pct = int(done / total_patterns * 100)
+            update_progress(done)
 
-            if pct != last_pct:
-                progress_bar.progress(pct)
-                bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
-
-                status_text.markdown(f"""
-**進捗:** {pct}%  
-**試行中:** {done:,} / {total_patterns:,}
-
-{bar}
-""")
-                last_pct = pct
-
-    # 最後に100%に
     progress_bar.progress(100)
     status_text.markdown(f"""
 **進捗:** 100%  
@@ -600,7 +579,7 @@ if st.button("🚀 解析開始"):
             for rr in range(ROWS):
                 row = []
                 for cc in range(COLS):
-                    row.append(EMOJI[r["final"][rr][cc]])
+                    row.append(EMOJI[r['final'][rr][cc]])
                 st.write(" ".join(row))
 
             st.markdown("---")
